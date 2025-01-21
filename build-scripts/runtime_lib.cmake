@@ -10,12 +10,6 @@ endif ()
 if (NOT DEFINED IWASM_DIR)
     set (IWASM_DIR ${WAMR_ROOT_DIR}/core/iwasm)
 endif ()
-if (NOT DEFINED APP_MGR_DIR)
-    set (APP_MGR_DIR ${WAMR_ROOT_DIR}/core/app-mgr)
-endif ()
-if (NOT DEFINED APP_FRAMEWORK_DIR)
-    set (APP_FRAMEWORK_DIR ${WAMR_ROOT_DIR}/core/app-framework)
-endif ()
 if (NOT DEFINED DEPS_DIR)
     set (DEPS_DIR ${WAMR_ROOT_DIR}/core/deps)
 endif ()
@@ -65,7 +59,12 @@ if (WAMR_BUILD_INTERP EQUAL 1)
 endif ()
 
 if (WAMR_BUILD_FAST_JIT EQUAL 1)
-    include (${IWASM_DIR}/fast-jit/iwasm_fast_jit.cmake)
+    if (WAMR_BUILD_PLATFORM STREQUAL "windows")
+        message ("Fast JIT currently not supported on Windows")
+        set (WAMR_BUILD_FAST_JIT 0)
+    else ()
+        include (${IWASM_DIR}/fast-jit/iwasm_fast_jit.cmake)
+    endif ()
 endif ()
 
 if (WAMR_BUILD_JIT EQUAL 1)
@@ -78,11 +77,14 @@ if (WAMR_BUILD_AOT EQUAL 1)
     include (${IWASM_DIR}/aot/iwasm_aot.cmake)
 endif ()
 
-if (WAMR_BUILD_APP_FRAMEWORK EQUAL 1)
-    include (${APP_FRAMEWORK_DIR}/app_framework.cmake)
-    include (${SHARED_DIR}/coap/lib_coap.cmake)
-    include (${APP_MGR_DIR}/app-manager/app_mgr.cmake)
-    include (${APP_MGR_DIR}/app-mgr-shared/app_mgr_shared.cmake)
+if (WAMR_BUILD_STRINGREF EQUAL 1)
+    set (WAMR_BUILD_GC 1)
+endif ()
+
+if (WAMR_BUILD_GC EQUAL 1)
+    include (${IWASM_DIR}/common/gc/iwasm_gc.cmake)
+    # Enable the dependent feature if GC is enabled
+    set (WAMR_BUILD_REF_TYPES 1)
 endif ()
 
 if (WAMR_BUILD_LIBC_BUILTIN EQUAL 1)
@@ -107,6 +109,10 @@ if (WAMR_BUILD_WASI_NN EQUAL 1)
 endif ()
 
 if (WAMR_BUILD_LIB_PTHREAD EQUAL 1)
+    if (WAMR_BUILD_PLATFORM STREQUAL "windows")
+        set (WAMR_BUILD_LIB_PTHREAD_SEMAPHORE 0)
+        message ("Lib pthread semaphore currently not supported on Windows")
+    endif ()
     include (${IWASM_DIR}/libraries/lib-pthread/lib_pthread.cmake)
     # Enable the dependent feature if lib pthread is enabled
     set (WAMR_BUILD_THREAD_MGR 1)
@@ -120,6 +126,10 @@ if (WAMR_BUILD_LIB_WASI_THREADS EQUAL 1)
     set (WAMR_BUILD_THREAD_MGR 1)
     set (WAMR_BUILD_BULK_MEMORY 1)
     set (WAMR_BUILD_SHARED_MEMORY 1)
+endif ()
+
+if (WAMR_BUILD_SHARED_HEAP EQUAL 1)
+    include (${IWASM_DIR}/libraries/shared-heap/shared_heap.cmake)
 endif ()
 
 if (WAMR_BUILD_DEBUG_INTERP EQUAL 1)
@@ -165,7 +175,11 @@ file (GLOB header
 )
 LIST (APPEND RUNTIME_LIB_HEADER_LIST ${header})
 
-enable_language (ASM)
+if (WAMR_BUILD_PLATFORM STREQUAL "windows")
+    enable_language (ASM_MASM)
+else()
+    enable_language (ASM)
+endif()
 
 include (${SHARED_PLATFORM_CONFIG})
 include (${SHARED_DIR}/mem-alloc/mem_alloc.cmake)
@@ -185,15 +199,14 @@ set (source_all
     ${IWASM_AOT_SOURCE}
     ${IWASM_COMPL_SOURCE}
     ${IWASM_FAST_JIT_SOURCE}
-    ${WASM_APP_LIB_SOURCE_ALL}
-    ${NATIVE_INTERFACE_SOURCE}
-    ${APP_MGR_SOURCE}
+    ${IWASM_GC_SOURCE}
     ${LIB_WASI_THREADS_SOURCE}
     ${LIB_PTHREAD_SOURCE}
     ${THREAD_MGR_SOURCE}
     ${LIBC_EMCC_SOURCE}
     ${LIB_RATS_SOURCE}
     ${DEBUG_ENGINE_SOURCE}
+    ${LIB_SHARED_HEAP_SOURCE}
 )
 
 set (WAMR_RUNTIME_LIB_SOURCE ${source_all})
