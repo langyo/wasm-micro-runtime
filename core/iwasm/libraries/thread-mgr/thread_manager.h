@@ -11,6 +11,9 @@
 #include "wasm_export.h"
 #include "../interpreter/wasm.h"
 #include "../common/wasm_runtime_common.h"
+#if WASM_ENABLE_SHARED_HEAP != 0
+#include "../common/wasm_memory.h"
+#endif
 
 #ifdef __cplusplus
 extern "C" {
@@ -30,7 +33,7 @@ struct WASMCluster {
     /* The aux stack of a module with shared memory will be
         divided into several segments. This array store the
         stack top of different segments */
-    uint32 *stack_tops;
+    uint64 *stack_tops;
     /* Record which segments are occupied */
     bool *stack_segment_occupied;
 #endif
@@ -45,11 +48,18 @@ struct WASMCluster {
      * requests. This is a short-lived state, must be cleared immediately once
      * the processing finished.
      * This is used to avoid dead lock when one thread waiting another thread
-     * with lock, see wams_cluster_wait_for_all and wasm_cluster_terminate_all
+     * with lock, see wasm_cluster_wait_for_all and wasm_cluster_terminate_all
      */
     bool processing;
 #if WASM_ENABLE_DEBUG_INTERP != 0
     WASMDebugInstance *debug_inst;
+#endif
+
+#if WASM_ENABLE_DUMP_CALL_STACK != 0
+    /* When an exception occurs in a thread, the stack frames of that thread are
+     * saved into the cluster
+     */
+    Vector exception_frames;
 #endif
 };
 
@@ -57,10 +67,10 @@ void
 wasm_cluster_set_max_thread_num(uint32 num);
 
 bool
-thread_manager_init();
+thread_manager_init(void);
 
 void
-thread_manager_destroy();
+thread_manager_destroy(void);
 
 /* Create cluster */
 WASMCluster *
@@ -81,7 +91,9 @@ wasm_cluster_dup_c_api_imports(WASMModuleInstanceCommon *module_inst_dst,
 
 int32
 wasm_cluster_create_thread(WASMExecEnv *exec_env,
-                           wasm_module_inst_t module_inst, bool alloc_aux_stack,
+                           wasm_module_inst_t module_inst,
+                           bool is_aux_stack_allocated, uint64 aux_stack_start,
+                           uint32 aux_stack_size,
                            void *(*thread_routine)(void *), void *arg);
 
 int32
@@ -100,7 +112,7 @@ bool
 wasm_cluster_register_destroy_callback(void (*callback)(WASMCluster *));
 
 void
-wasm_cluster_cancel_all_callbacks();
+wasm_cluster_cancel_all_callbacks(void);
 
 void
 wasm_cluster_suspend_all(WASMCluster *cluster);
@@ -126,7 +138,7 @@ wasm_cluster_terminate_all_except_self(WASMCluster *cluster,
                                        WASMExecEnv *exec_env);
 
 void
-wams_cluster_wait_for_all(WASMCluster *cluster);
+wasm_cluster_wait_for_all(WASMCluster *cluster);
 
 void
 wasm_cluster_wait_for_all_except_self(WASMCluster *cluster,
@@ -158,6 +170,15 @@ wasm_cluster_set_context(WASMModuleInstanceCommon *module_inst, void *key,
 bool
 wasm_cluster_is_thread_terminated(WASMExecEnv *exec_env);
 
+#if WASM_ENABLE_SHARED_HEAP != 0
+bool
+wasm_cluster_attach_shared_heap(WASMModuleInstanceCommon *module_inst,
+                                WASMSharedHeap *heap);
+
+void
+wasm_cluster_detach_shared_heap(WASMModuleInstanceCommon *module_inst);
+#endif
+
 #if WASM_ENABLE_DEBUG_INTERP != 0
 #define WAMR_SIG_TRAP (5)
 #define WAMR_SIG_STOP (19)
@@ -175,13 +196,13 @@ wasm_cluster_is_thread_terminated(WASMExecEnv *exec_env);
     ((signo) == WAMR_SIG_STOP || (signo) == WAMR_SIG_TRAP)
 
 struct WASMCurrentEnvStatus {
-    uint64 signal_flag : 32;
-    uint64 step_count : 16;
-    uint64 running_status : 16;
+    uint32 signal_flag;
+    uint16 step_count;
+    uint16 running_status;
 };
 
 WASMCurrentEnvStatus *
-wasm_cluster_create_exenv_status();
+wasm_cluster_create_exenv_status(void);
 
 void
 wasm_cluster_destroy_exenv_status(WASMCurrentEnvStatus *status);
@@ -214,6 +235,19 @@ void
 wasm_cluster_set_debug_inst(WASMCluster *cluster, WASMDebugInstance *inst);
 
 #endif /* end of WASM_ENABLE_DEBUG_INTERP != 0 */
+
+void
+wasm_cluster_traverse_lock(WASMExecEnv *exec_env);
+
+void
+wasm_cluster_traverse_unlock(WASMExecEnv *exec_env);
+
+bool
+wasm_cluster_allocate_aux_stack(WASMExecEnv *exec_env, uint64 *p_start,
+                                uint32 *p_size);
+
+bool
+wasm_cluster_free_aux_stack(WASMExecEnv *exec_env, uint64 start);
 
 #ifdef __cplusplus
 }
